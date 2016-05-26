@@ -1,0 +1,1 @@
+python "%~dp0\light_sheet_controller.py"
