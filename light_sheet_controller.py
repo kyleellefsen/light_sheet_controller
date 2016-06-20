@@ -10,8 +10,7 @@ To Use:
 Run this program with python.  
 
 """
-from __future__ import division
-import os
+import sys, os, time
 os.chdir(os.path.split(os.path.realpath(__file__))[0])
 from dependency_check import check_dependencies
 check_dependencies('PyDAQmx','pyqtgraph', 'PyQt4','numpy','scipy')
@@ -22,16 +21,12 @@ from PyQt4.QtGui import * # Qt is Nokias GUI rendering code written in C++.  PyQ
 from PyQt4.QtCore import *
 from PyQt4.QtCore import pyqtSignal as Signal
 from PyQt4.QtCore import pyqtSlot  as Slot
-import sys
-if sys.version_info.major==2:
-    import cPickle as pickle # pickle serializes python objects so they can be saved persistantly.  It converts a python object into a savable data structure
-else:
-    import pickle
-import os, time
+import pickle
 from os.path import expanduser
 from pyqtgraph import plot
 import pyqtgraph as pg
 import scipy.ndimage
+import time
 
 
 dac_present=True
@@ -65,18 +60,13 @@ class Settings:
     def keys(self):
         return self.d[self.i].keys()
         
-        
 def calcPiezoWaveform(settings):
     s=settings
     #  s=maingui.settings
     step_duration_seconds=s['step_duration']/1000
-    #if s['total_cycle_period']<.5:
-    #    reset_duration=s['total_cycle_period']/1
-    #else:
-    #    reset_duration=.1 # 100 ms
-    reset_duration=.02
-    if s['total_cycle_period']<s['nSteps']*step_duration_seconds+reset_duration:
-        s['total_cycle_period']=s['nSteps']*step_duration_seconds+reset_duration
+    flyback_duration_seconds = s['flyback_duration']/1000
+    if s['total_cycle_period']<s['nSteps']*step_duration_seconds+flyback_duration_seconds:
+        s['total_cycle_period']=s['nSteps']*step_duration_seconds+flyback_duration_seconds
     t=np.arange(0,s['total_cycle_period'],1/s['sample_rate'])
     maxV=s['maximum_displacement']*s['mV_per_pixel']/1000
     
@@ -90,13 +80,14 @@ def calcPiezoWaveform(settings):
   
     
     nSamps_ramp=np.count_nonzero(t<step_end_times[-1])
-    nSamps_reset=int(reset_duration*s['sample_rate'])
+    nSamps_reset=int(flyback_duration_seconds*s['sample_rate'])
     theta=np.linspace(0,np.pi,nSamps_reset)
     reposition_sig=maxV*(np.cos(theta)+1)/2
-    V[nSamps_ramp:nSamps_ramp+nSamps_reset]=reposition_sig
+    V[nSamps_ramp:nSamps_ramp+nSamps_reset]=maxV
 
-    sigma=10
-    V=scipy.ndimage.filters.gaussian_filter1d(V,sigma)      
+    sigma=6
+    V=scipy.ndimage.filters.gaussian_filter1d(V,sigma)
+    V[nSamps_ramp:nSamps_ramp + nSamps_reset] = reposition_sig
     return t, V
     
 def calcCameraTTL(settings):
@@ -125,7 +116,7 @@ def calcDitherWaveform(settings):
     V-=np.min(V)
     return t, V
 
-import time
+
         
 class LightSheetDriver(QWidget):
     ''' This class sends creates the signal which will control the piezo, and sends it to the DAQ.'''
@@ -294,6 +285,7 @@ class MainGui(QWidget):
         maximum_displacement = SliderLabel(0);   maximum_displacement.setRange(0,1000)
         nSteps               = SliderLabel(0);   nSteps.setRange(1,1000)
         step_duration        = SliderLabel(0);   step_duration.setRange(1,200)
+        flyback_duration     = SliderLabel(0);   flyback_duration.setRange(1, 100)
         total_cycle_period   = SliderLabel(3);   total_cycle_period.setRange(0,1000)
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
         dither_freq          = SliderLabel(3);   dither_freq.setRange(0,50)
@@ -305,6 +297,7 @@ class MainGui(QWidget):
         self.items.append({'name':'maximum_displacement','string':'Maximum displacement (pixels)','object':maximum_displacement})
         self.items.append({'name':'nSteps','string':'Number of steps per cycle','object':nSteps})
         self.items.append({'name':'step_duration','string':'Step duration (ms)','object':step_duration})
+        self.items.append({'name': 'flyback_duration', 'string': 'Flyback Duration (ms)', 'object': flyback_duration})
         self.items.append({'name':'total_cycle_period','string':'Total cycle Period (s)','object':total_cycle_period})
         self.items.append({'name':'dither_amp','string':'Dither amplitude mV','object':dither_amp})
         self.items.append({'name':'dither_freq','string':'Dither Frequency','object':dither_freq})
