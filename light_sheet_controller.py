@@ -90,7 +90,7 @@ def calcPiezoWaveform(settings):
     reposition_sig = maxV*(np.cos(theta)+1)/2
     V[nSamps_ramp:] = maxV
 
-    sigma = 6
+    sigma = 3
     V = scipy.ndimage.filters.gaussian_filter1d(V, sigma)
     V[nSamps_ramp:nSamps_ramp + nSamps_reset] = reposition_sig
     V[nSamps_ramp+nSamps_reset:] = 0
