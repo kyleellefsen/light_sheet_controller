@@ -12,7 +12,10 @@ Run this program with python.
 """
 
 import sys, os, time
-os.chdir(os.path.split(os.path.realpath(__file__))[0])
+try:
+    os.chdir(os.path.split(os.path.realpath(__file__))[0])
+except NameError:
+    pass
 from dependency_check import check_dependencies
 check_dependencies('PyDAQmx','pyqtgraph', 'PyQt4','numpy','scipy')
 from PyDAQmx import *
@@ -43,6 +46,15 @@ class Settings:
         except IOError:
             a=dict()
             a['sample_rate']=5000 # Maximum for the NI USB-6001 is 5kS/s/ch
+            a['mV_per_pixel'] = 1
+            a['maximum_displacement'] = 1
+            a['nSteps'] = 1
+            a['step_duration'] = 1
+            a['flyback_duration'] = 1
+            a['total_cycle_period'] = 1
+            a['dither_amp'] = 1
+            a['dither_freq'] = 1
+            a['total_Ncycles'] = 1
             self.d = [a, a.copy(), a.copy(), a.copy()]
 
     def __getitem__(self, item):
