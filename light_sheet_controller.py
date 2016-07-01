@@ -77,15 +77,19 @@ class Settings:
     def keys(self):
         return self.d[self.i].keys()
 
+def warning(text):
+    msgBox = QMessageBox()
+    msgBox.setText(text)
+    msgBox.addButton(QMessageBox.Ok)
+    msgBox.setDefaultButton(QMessageBox.Ok)
+    ret = msgBox.exec_()
+    return ret
 
 def calcPiezoWaveform(settings):
     s = settings
     step_duration_seconds = s['step_duration']/1000
     flyback_duration_seconds = s['flyback_duration']/1000
-    total_cycle_period = s['total_cycle_period']
-    if total_cycle_period < s['nSteps']*step_duration_seconds+flyback_duration_seconds:
-        total_cycle_period = s['nSteps']*step_duration_seconds+flyback_duration_seconds
-    t = np.arange(0, total_cycle_period, 1/s['sample_rate'])
+    t = get_time_array(s)
     maxV = s['maximum_displacement']*s['mV_per_pixel']/1000
     step_end_times=np.linspace(step_duration_seconds,s['nSteps']*step_duration_seconds,s['nSteps'])
     step_start_times=step_end_times-step_duration_seconds
@@ -94,26 +98,33 @@ def calcPiezoWaveform(settings):
     for step in np.arange(s['nSteps']):
         idx=np.logical_and(t>=step_start_times[step], t<=step_end_times[step])
         V[idx]=step_values[step]
-  
-    
     nSamps_ramp = np.count_nonzero(t<step_end_times[-1])
     nSamps_reset = int(flyback_duration_seconds*s['sample_rate'])
     theta = np.linspace(0,np.pi,nSamps_reset)
     reposition_sig = maxV*(np.cos(theta)+1)/2
     V[nSamps_ramp:] = maxV
-
     sigma = 3
     V = scipy.ndimage.filters.gaussian_filter1d(V, sigma)
     V[nSamps_ramp:nSamps_ramp + nSamps_reset] = reposition_sig
     V[nSamps_ramp+nSamps_reset:] = 0
+
+    if np.max(V) >= 10:
+        warning('The voltage of the piezo waveform can not exceed 10. The current max voltage is {}.  Adjust controls to fix this error. '.format(np.max(V)))
+        V[V > 10] = 10
+    if np.min(V) <= -10:
+        warning('The voltage of the piezo waveform can not exceed -10. The current max voltage is {}. Adjust controls to fix this error. '.format(np.min(V)))
+        V[V < -10] = -10
+    assert np.max(V) <= 10
+    assert np.min(V) >= -10
     return t, V
 
 
 def calcCameraTTL(settings):
     s=settings
-    t=np.arange(0,s['total_cycle_period'],1/s['sample_rate'])
+    step_duration_seconds = s['step_duration']/1000
+    t = get_time_array(s)
     step_duration_seconds=s['step_duration']/1000
-    step_end_times=np.linspace(step_duration_seconds,s['nSteps']*step_duration_seconds,s['nSteps'])
+    step_end_times = np.linspace(step_duration_seconds,s['nSteps']*step_duration_seconds,s['nSteps'])
     step_start_times=step_end_times-step_duration_seconds
     V=np.zeros(len(t),dtype=np.uint8)
     for step in np.arange(s['nSteps']):
@@ -122,9 +133,18 @@ def calcCameraTTL(settings):
     return t, V
 
 
+def get_time_array(s):
+    step_duration_seconds = s['step_duration'] / 1000
+    flyback_duration_seconds = s['flyback_duration'] / 1000
+    total_cycle_period = s['total_cycle_period']
+    if total_cycle_period < s['nSteps'] * step_duration_seconds + flyback_duration_seconds:
+        total_cycle_period = s['nSteps'] * step_duration_seconds + flyback_duration_seconds
+    t = np.arange(0, total_cycle_period, 1 / s['sample_rate'])
+    return t
+
 def calcDitherWaveform(settings):
-    s=settings
-    t=np.arange(0,s['total_cycle_period'],1/s['sample_rate'])
+    s = settings
+    t = get_time_array(s)
     amp=s['dither_amp']/1000
     freq=s['dither_freq']
     period=1/freq
@@ -201,23 +221,23 @@ class LightSheetDriver(QWidget):
             self.analog_output.StartTask()
 
     def gotozero(self):
-        s=self.settings
-        t=np.arange(0,s['total_cycle_period'],1/s['sample_rate'])
+        s = self.settings
+        t = np.arange(0,.1, 1 / s['sample_rate'])
         piezoWaveform=np.zeros(len(t))
         cameraTTL=np.zeros(len(t))
         self.data=np.concatenate((piezoWaveform,cameraTTL))
         self.sampsPerPeriod=len(piezoWaveform)
         self.analog_output.StopTask()
         self.analog_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_FiniteSamps,self.sampsPerPeriod)
-        self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data,byref(self.read),None) 
+        self.analog_output.WriteAnalogF64(self.sampsPerPeriod, 0, -1, DAQmx_Val_GroupByChannel, self.data, byref(self.read), None)
         self.analog_output.StartTask()
         time.sleep(1)
         self.analog_output.StopTask()
         self.stopped=True
 
     def gotoend(self):
-        s=self.settings
-        t=np.arange(0,s['total_cycle_period'],1/s['sample_rate'])
+        s = self.settings
+        t = np.arange(0, .1, 1 / s['sample_rate'])
         maxV=s['maximum_displacement']*s['mV_per_pixel']/1000
         piezoWaveform=np.ones(len(t)) * maxV
         cameraTTL=np.zeros(len(t))
