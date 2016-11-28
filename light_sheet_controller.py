@@ -369,7 +369,7 @@ class MainGui(QWidget):
         maximum_displacement = SliderLabel(0);   maximum_displacement.setRange(0,1000)
         nSteps               = SliderLabel(0);   nSteps.setRange(1,1000)
         step_duration        = SliderLabel(0);   step_duration.setRange(1,200)
-        flyback_duration     = SliderLabel(0);   flyback_duration.setRange(1, 100)
+        flyback_duration     = SliderLabel(0);   flyback_duration.setRange(1, 1000)
         total_cycle_period   = SliderLabel(3);   total_cycle_period.setRange(0,10)
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
         total_Ncycles        = SliderLabel(0);   total_Ncycles.setRange(0,100)
