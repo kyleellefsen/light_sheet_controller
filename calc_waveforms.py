@@ -17,7 +17,11 @@ def get_time_array(s):
     :return:
     '''
     step_duration_seconds = s['step_duration'] / 1000
-    flyback_duration_seconds = s['flyback_duration'] / 1000
+    if s['triangle_scan']:
+        flyback_duration_seconds = 0
+    else:
+        flyback_duration_seconds = s['flyback_duration'] / 1000
+
     total_cycle_period = s['total_cycle_period']
     if total_cycle_period < s['nSteps'] * step_duration_seconds + flyback_duration_seconds:
         total_cycle_period = s['nSteps'] * step_duration_seconds + flyback_duration_seconds
@@ -69,15 +73,18 @@ def calcPiezoWaveform(settings):
 
 
 def calcCameraTTL(settings):
-    s=settings
+    s = settings
     step_duration_seconds = s['step_duration']/1000
-    t = get_time_array(s)
     step_end_times = np.linspace(step_duration_seconds,s['nSteps']*step_duration_seconds,s['nSteps'])
     if s['triangle_scan']:
-        step_end_times = np.concatenate([step_end_times,step_end_times+s['total_cycle_period']])
+        total_cycle_period = s['total_cycle_period']
+        if total_cycle_period < s['nSteps'] * step_duration_seconds:
+            total_cycle_period = s['nSteps'] * step_duration_seconds
+        step_end_times = np.concatenate([step_end_times,step_end_times+total_cycle_period])
     step_start_times=step_end_times-step_duration_seconds
-    V=np.zeros(len(t),dtype=np.uint8)
-    for step in np.arange(s['nSteps']):
+    t = get_time_array(s)
+    V = np.zeros(len(t),dtype=np.uint8)
+    for step in np.arange(len(step_start_times)):
         idx=np.argmax(t >= step_start_times[step])
         V[idx]=5
     return t, V
@@ -91,6 +98,7 @@ def calcDitherWaveform(settings):
     freq = 1/step_duration_seconds
     V = amp*np.cos(2*np.pi*freq*t+np.pi)
     V -= np.min(V)
-    steps_end_time = s['nSteps'] * step_duration_seconds
-    V[t > steps_end_time] = 0
+    if not s['triangle_scan']:
+        steps_end_time = s['nSteps'] * step_duration_seconds
+        V[t > steps_end_time] = 0
     return t, V

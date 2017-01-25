@@ -30,6 +30,7 @@ import pickle
 from os.path import expanduser
 import pyqtgraph as pg
 from collections import OrderedDict
+from ctypes import byref, c_int32
 
 
 def warning(text):
@@ -112,8 +113,8 @@ class LightSheetDriver(QtWidgets.QWidget):
         self.sample_rate = settings['sample_rate']
         self.sampsPerPeriod = 1  # samples per channel
         self.calculate()
-        self.read = int32()
-        self.digital_read = int32()
+        self.read = c_int32()
+        self.digital_read = c_int32()
         self.createTask()
         self.hide()
 
@@ -319,7 +320,7 @@ class MainGui(QtWidgets.QWidget):
         flyback_duration     = SliderLabel(0);   flyback_duration.setRange(1, 1000)
         total_cycle_period   = SliderLabel(3);   total_cycle_period.setRange(0,10)
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
-        triangle_scan        = Triangle_Scan_Checkbox()
+        triangle_scan        = Triangle_Scan_Checkbox(self)
 
         self.items = OrderedDict()
         self.items['mV_per_pixel']              = {'name': 'mV_per_pixel',          'string': 'mV/pixel',                       'object': mV_per_pixel}
@@ -467,6 +468,5 @@ if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     check_if_NI_devs_are_present()
     maingui = MainGui()
-
-    self = maingui.items['triangle_scan']['object']
+    sys.exit(app.exec_())
 
