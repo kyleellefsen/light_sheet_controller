@@ -77,6 +77,7 @@ class Settings:
             a['total_cycle_period'] = .2
             a['dither_amp'] = 1
             a['triangle_scan'] = False
+            a['offset'] = 0
             self.d = [a, a.copy(), a.copy(), a.copy()]
 
     def __getitem__(self, item):
@@ -306,7 +307,7 @@ class MainGui(QtWidgets.QWidget):
     changeSignal=Signal()
     def __init__(self):
         QtWidgets.QWidget.__init__(self)
-        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
+        #self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
         self.setWindowTitle('Light Sheet Controller')
         formlayout=QtWidgets.QFormLayout()
         self.settings=Settings()
@@ -320,6 +321,7 @@ class MainGui(QtWidgets.QWidget):
         flyback_duration     = SliderLabel(0);   flyback_duration.setRange(1, 1000)
         total_cycle_period   = SliderLabel(3);   total_cycle_period.setRange(0,10)
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
+        offset               = SliderLabel(0);   offset.setRange(0, 1000)
         triangle_scan        = Triangle_Scan_Checkbox(self)
 
         self.items = OrderedDict()
@@ -330,6 +332,7 @@ class MainGui(QtWidgets.QWidget):
         self.items['flyback_duration']          = {'name': 'flyback_duration',      'string': 'Flyback Duration (ms)',          'object': flyback_duration}
         self.items['total_cycle_period']        = {'name': 'total_cycle_period',    'string': 'Total cycle Period (s)',         'object': total_cycle_period}
         self.items['dither_amp']                = {'name': 'dither_amp',            'string': 'Dither amplitude mV',            'object': dither_amp}
+        self.items['offset']                    = {'name': 'offset',                'string': 'Offset (steps)',                 'object': offset}
         self.items['triangle_scan']             = {'name': 'triangle_scan',         'string': 'Triangle Scan',                  'object': triangle_scan}
 
         for item in self.items.values():
