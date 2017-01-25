@@ -31,6 +31,12 @@ def get_time_array(s):
         t = np.arange(0, 2*total_cycle_period, 1 / s['sample_rate'])
     return t
 
+def get_offset_voltage(s):
+    offset_steps = s['offset']
+    volts_per_step = s['maximum_displacement'] * (s['mV_per_pixel'] / 1000.0) / s['nSteps']
+    offset_volts = offset_steps * volts_per_step
+    return offset_volts
+
 
 def calcPiezoWaveform(settings):
     s = settings
@@ -61,10 +67,7 @@ def calcPiezoWaveform(settings):
         V[nSamps_ramp:nSamps_ramp + nSamps_reset] = reposition_sig
         V[nSamps_ramp+nSamps_reset:] = 0
 
-    offset_steps = s['offset']
-    volts_per_step = s['maximum_displacement'] * (s['mV_per_pixel'] / 1000.0) / s['nSteps']
-    offset_volts = offset_steps * volts_per_step
-    V = V + offset_volts
+    V = V + get_offset_voltage()
 
     if np.max(V) >= 10:
         warning('The voltage of the piezo waveform can not exceed 10. The current max voltage is {}.  Adjust controls to fix this error. '.format(np.max(V)))

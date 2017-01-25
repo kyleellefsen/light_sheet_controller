@@ -22,7 +22,7 @@ check_dependencies('PyDAQmx','pyqtgraph', 'PyQt4','numpy','scipy')
 import PyDAQmx
 from PyDAQmx.DAQmxCallBack import *
 from PyDAQmx_helper import getNIDevInfo
-from calc_waveforms import calcPiezoWaveform, calcCameraTTL, calcDitherWaveform
+from calc_waveforms import calcPiezoWaveform, calcCameraTTL, calcDitherWaveform, get_offset_voltage
 from qtpy import QtCore
 from qtpy import QtWidgets
 from qtpy.QtCore import Signal, Slot
@@ -190,8 +190,8 @@ class LightSheetDriver(QtWidgets.QWidget):
     def gotozero(self):
         s = self.settings
         t = np.arange(0, .1, 1 / s['sample_rate'])
-        piezoWaveform=np.zeros(len(t))
-        cameraTTL=np.zeros(len(t))
+        piezoWaveform = np.ones(len(t)) * get_offset_voltage(s)
+        cameraTTL = np.zeros(len(t))
         self.data=np.concatenate((piezoWaveform,cameraTTL))
         self.sampsPerPeriod=len(piezoWaveform)
         self.analog_output.StopTask()
@@ -282,8 +282,15 @@ class SliderLabel(QtWidgets.QWidget):
         self.label.setEnabled(bool)
     def setSingleStep(self,value):
         self.label.setSingleStep(value)
-        
-        
+
+
+class Offset_SliderLabel(SliderLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.valueChanged.connect(self.changed)
+    def changed(self,value):
+        self.parent().gotozero()
+
 class CheckBox(QtWidgets.QCheckBox):
     """ I overwrote the QCheckBox class so that every graphical element has the method 'setValue'. """
     def __init__(self,parent=None):
@@ -321,7 +328,7 @@ class MainGui(QtWidgets.QWidget):
         flyback_duration     = SliderLabel(0);   flyback_duration.setRange(1, 1000)
         total_cycle_period   = SliderLabel(3);   total_cycle_period.setRange(0,10)
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
-        offset               = SliderLabel(0);   offset.setRange(0, 1000)
+        offset               = Offset_SliderLabel(0);   offset.setRange(0, 1000)
         triangle_scan        = Triangle_Scan_Checkbox(self)
 
         self.items = OrderedDict()
