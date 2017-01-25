@@ -12,29 +12,51 @@ Run this program with python.
 """
 
 import sys, os, time
+import numpy as np
 try:
     os.chdir(os.path.split(os.path.realpath(__file__))[0])
 except NameError:
     pass
 from dependency_check import check_dependencies
 check_dependencies('PyDAQmx','pyqtgraph', 'PyQt4','numpy','scipy')
-from PyDAQmx import *
+import PyDAQmx
 from PyDAQmx.DAQmxCallBack import *
-import numpy as np
-from PyQt4.QtGui import *
-from PyQt4.QtCore import *
-from PyQt4.QtCore import pyqtSignal as Signal
-from PyQt4.QtCore import pyqtSlot as Slot
+from PyDAQmx_helper import getNIDevInfo
+from calc_waveforms import calcPiezoWaveform, calcCameraTTL, calcDitherWaveform
+from qtpy import QtCore
+from qtpy import QtWidgets
+from qtpy.QtCore import Signal, Slot
 import pickle
 from os.path import expanduser
-from pyqtgraph import plot
 import pyqtgraph as pg
-import scipy.ndimage
-import time
+from collections import OrderedDict
 
 
-dac_present = True
+def warning(text):
+    msgBox = QtWidgets.QMessageBox()
+    msgBox.setText(str(text))
+    msgBox.addButton(QtWidgets.QMessageBox.Ok)
+    msgBox.setDefaultButton(QtWidgets.QMessageBox.Ok)
+    ret = msgBox.exec_()
+    return ret
 
+dac_present = False
+def check_if_NI_devs_are_present():
+    global dac_present
+    NIDevInfo = getNIDevInfo()
+    if 'Dev1' not in NIDevInfo.keys() and 'Dev2' not in NIDevInfo.keys():
+        warning('Neither National Instruments Dev1 nor Dev2 can be detected. Open NI MAX and make sure the devices are present. Continuing in test mode.')
+    elif 'Dev1' not in NIDevInfo.keys():
+        warning('National Instruments Dev1 cannot be detected. Open NI MAX and make sure the device is present. Continuing in test mode.')
+    elif 'Dev2' not in NIDevInfo.keys():
+        warning('National Instruments Dev2 cannot be detected. Open NI MAX and make sure the device is present. Continuing in test mode.')
+    elif NIDevInfo['Dev1']['product_type'] != 'USB-6001':
+        warning('National Instruments Dev1 is not USB-6001. Continuing in test mode.')
+    elif NIDevInfo['Dev2']['product_type'] != 'USB-6001':
+        warning('National Instruments Dev2 is not USB-6001. Continuing in test mode.')
+    else:
+        dac_present=True
+    return dac_present
 
 class Settings:
     ''' This class saves all the settings as you adjust them.  This way, when you close the program and reopen it, all your settings will automatically load as they were just after the last adjustement'''
@@ -48,12 +70,12 @@ class Settings:
             a['sample_rate']=5000 # Maximum for the NI USB-6001 is 5kS/s/ch
             a['mV_per_pixel'] = 1
             a['maximum_displacement'] = 1
-            a['nSteps'] = 1
-            a['step_duration'] = 1
-            a['flyback_duration'] = 1
-            a['total_cycle_period'] = 1
+            a['nSteps'] = 5
+            a['step_duration'] = 10
+            a['flyback_duration'] = 20
+            a['total_cycle_period'] = .2
             a['dither_amp'] = 1
-            a['total_Ncycles'] = 1
+            a['triangle_scan'] = False
             self.d = [a, a.copy(), a.copy(), a.copy()]
 
     def __getitem__(self, item):
@@ -77,90 +99,13 @@ class Settings:
         return self.d[self.i].keys()
 
 
-def warning(text):
-    msgBox = QMessageBox()
-    msgBox.setText(text)
-    msgBox.addButton(QMessageBox.Ok)
-    msgBox.setDefaultButton(QMessageBox.Ok)
-    ret = msgBox.exec_()
-    return ret
 
-
-def calcPiezoWaveform(settings):
-    s = settings
-    step_duration_seconds = s['step_duration']/1000
-    flyback_duration_seconds = s['flyback_duration']/1000
-    t = get_time_array(s)
-    maxV = s['maximum_displacement']*s['mV_per_pixel']/1000
-    step_end_times=np.linspace(step_duration_seconds,s['nSteps']*step_duration_seconds,s['nSteps'])
-    step_start_times=step_end_times-step_duration_seconds
-    step_values=np.linspace(0,maxV,s['nSteps'])
-    V = np.zeros(len(t))
-    for step in np.arange(s['nSteps']):
-        idx=np.logical_and(t>=step_start_times[step], t<=step_end_times[step])
-        V[idx]=step_values[step]
-    nSamps_ramp = np.count_nonzero(t<step_end_times[-1])
-    nSamps_reset = int(flyback_duration_seconds*s['sample_rate'])
-    theta = np.linspace(0,np.pi,nSamps_reset)
-    reposition_sig = maxV*(np.cos(theta)+1)/2
-    V[nSamps_ramp:] = maxV
-    sigma = 3
-    V = scipy.ndimage.filters.gaussian_filter1d(V, sigma)
-    V[nSamps_ramp:nSamps_ramp + nSamps_reset] = reposition_sig
-    V[nSamps_ramp+nSamps_reset:] = 0
-
-    if np.max(V) >= 10:
-        warning('The voltage of the piezo waveform can not exceed 10. The current max voltage is {}.  Adjust controls to fix this error. '.format(np.max(V)))
-        V[V > 10] = 10
-    if np.min(V) <= -10:
-        warning('The voltage of the piezo waveform can not exceed -10. The current max voltage is {}. Adjust controls to fix this error. '.format(np.min(V)))
-        V[V < -10] = -10
-    assert np.max(V) <= 10
-    assert np.min(V) >= -10
-    return t, V
-
-
-def calcCameraTTL(settings):
-    s=settings
-    step_duration_seconds = s['step_duration']/1000
-    t = get_time_array(s)
-    step_duration_seconds=s['step_duration']/1000
-    step_end_times = np.linspace(step_duration_seconds,s['nSteps']*step_duration_seconds,s['nSteps'])
-    step_start_times=step_end_times-step_duration_seconds
-    V=np.zeros(len(t),dtype=np.uint8)
-    for step in np.arange(s['nSteps']):
-        idx=np.argmax(t>=step_start_times[step])
-        V[idx]=5
-    return t, V
-
-
-def get_time_array(s):
-    step_duration_seconds = s['step_duration'] / 1000
-    flyback_duration_seconds = s['flyback_duration'] / 1000
-    total_cycle_period = s['total_cycle_period']
-    if total_cycle_period < s['nSteps'] * step_duration_seconds + flyback_duration_seconds:
-        total_cycle_period = s['nSteps'] * step_duration_seconds + flyback_duration_seconds
-    t = np.arange(0, total_cycle_period, 1 / s['sample_rate'])
-    return t
-
-
-def calcDitherWaveform(settings):
-    s = settings
-    t = get_time_array(s)
-    amp = s['dither_amp'] / 1000
-    step_duration_seconds = s['step_duration'] / 1000
-    freq = 1/step_duration_seconds
-    V = amp*np.cos(2*np.pi*freq*t+np.pi)
-    V -= np.min(V)
-    steps_end_time = s['nSteps'] * step_duration_seconds
-    V[t > steps_end_time] = 0
-    return t, V
 
         
-class LightSheetDriver(QWidget):
+class LightSheetDriver(QtWidgets.QWidget):
     ''' This class sends creates the signal which will control the piezo, and sends it to the DAQ.'''
     def __init__(self,settings):
-        QWidget.__init__(self)
+        QtWidgets.QWidget.__init__(self)
         self.data = None
         self.data2 = None
         self.settings = settings
@@ -173,47 +118,36 @@ class LightSheetDriver(QWidget):
         self.hide()
 
     def createTask(self):
-        self.analog_output = Task()
-        self.analog_output.CreateAOVoltageChan("Dev1/ao0", "", -10.0, 10.0, DAQmx_Val_Volts, None) #  This is the piezo channel
-        self.analog_output.CreateAOVoltageChan("Dev1/ao1", "", -10.0, 10.0, DAQmx_Val_Volts, None) #  This is the ttl channel
-        self.analog_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod) #  CfgSampClkTiming(source, rate, activeEdge, sampleMode, sampsPerChan)
-        self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data, byref(self.read), None) #  WriteAnalogF64(numSampsPerChan, autoStart, timeout, dataLayout, writeArray, sampsPerChanWritten, reserved)
+        self.analog_output = PyDAQmx.Task()
+        self.analog_output.CreateAOVoltageChan("Dev1/ao0", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the piezo channel
+        self.analog_output.CreateAOVoltageChan("Dev1/ao1", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the ttl channel
+        self.analog_output.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod) #  CfgSampClkTiming(source, rate, activeEdge, sampleMode, sampsPerChan)
+        self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data, byref(self.read), None) #  WriteAnalogF64(numSampsPerChan, autoStart, timeout, dataLayout, writeArray, sampsPerChanWritten, reserved)
 
-        self.analog_output2 = Task()
-        self.analog_output2.CreateAOVoltageChan("Dev2/ao0", "", -10.0, 10.0, DAQmx_Val_Volts, None) #  This is the piezo channel
-        self.analog_output2.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
-        self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data2, byref(self.read), None)
-
+        self.analog_output2 = PyDAQmx.Task()
+        self.analog_output2.CreateAOVoltageChan("Dev2/ao0", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the piezo channel
+        self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
+        self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data2, byref(self.read), None)
         self.analog_output.StartTask()
         self.analog_output2.StartTask()
-        
-        # self.digital_output = Task()
-        # self.digital_output.CreateDOChan(b'Dev1/port0',b'',DAQmx_Val_ChanForAllLines)
-        # self.digital_output.CfgSampClkTiming('/Dev1/PFI0',10.0,DAQmx_Val_Rising,DAQmx_Val_FiniteSamps,8)
-        # self.digital_output.WriteDigitalU8(self.sampsPerPeriod, 0, -1, DAQmx_Val_GroupByChannel,self.digital_data, byref(self.digital_read) ,None) #https://www.quark.kj.yamagata-u.ac.jp/~miyachi/nidaqmxbase-3.4.0/documentation/docsource/daqmxbasecfunc.chm/DAQmxWriteDigitalU8.html
-        # self.digital_data=np.array([0,1,0,1,0,1,1,0],dtype=np.uint8)
-        # self.digital_data=np.array([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],dtype=np.uint8)
-        # self.digital_output.WriteDigitalU8(8,1,10.0,DAQmx_Val_GroupByChannel,self.digital_data,byref(self.digital_read),None)
         self.stopped=False
         self.acquiring=False
 
     def calculate(self):
-        t, piezoWaveform = calcPiezoWaveform(self.settings)
-        t, cameraTTL = calcCameraTTL(self.settings)
-        t, ditherWaveform = calcDitherWaveform(self.settings)
+        _, piezoWaveform = calcPiezoWaveform(self.settings)
+        _, cameraTTL = calcCameraTTL(self.settings)
+        _, ditherWaveform = calcDitherWaveform(self.settings)
         self.data = np.concatenate((piezoWaveform, cameraTTL))
         self.data2 = ditherWaveform
         self.sampsPerPeriod=len(piezoWaveform)
-        #  self.digital_data = np.zeros(8*len(t),dtype=np.uint8)
-        #  self.digital_data[:len(t)] = cameraTTL
 
     def startstop(self):
         if self.stopped:
             self.calculate()
-            self.analog_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data,byref(self.read),None)
-            self.analog_output2.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data2,byref(self.read),None)
+            self.analog_output.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
+            self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data, byref(self.read),None)
+            self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
+            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read),None)
             self.analog_output.StartTask()
             self.analog_output2.StartTask()
             self.stopped=False
@@ -227,11 +161,11 @@ class LightSheetDriver(QWidget):
         if self.stopped is False:
             self.calculate()
             self.analog_output.StopTask()
-            self.analog_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data,byref(self.read),None)
+            self.analog_output.CfgSampClkTiming("",self.sample_rate,PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
+            self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1,PyDAQmx.DAQmx_Val_GroupByChannel,self.data,byref(self.read),None)
             self.analog_output2.StopTask()
-            self.analog_output2.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data2,byref(self.read),None)
+            self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
+            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data2,byref(self.read),None)
             #self.digital_output.StopTask()
             #self.digital_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
             #self.digital_output.WriteDigitalU8(self.sampsPerPeriod, 0, -1, DAQmx_Val_GroupByChannel,self.digital_data, byref(self.digital_read) ,None) #https://www.quark.kj.yamagata-u.ac.jp/~miyachi/nidaqmxbase-3.4.0/documentation/docsource/daqmxbasecfunc.chm/DAQmxWriteDigitalU8.html
@@ -245,22 +179,22 @@ class LightSheetDriver(QWidget):
         ditherWaveform = np.zeros(len(t))
         self.data2 = ditherWaveform
         self.analog_output2.StopTask()
-        self.analog_output2.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_FiniteSamps,sampsPerPeriod)
-        self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+        self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
+        self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
         self.analog_output2.StartTask()
         time.sleep(.02)
         self.analog_output2.StopTask()
 
     def gotozero(self):
         s = self.settings
-        t = np.arange(0,.1, 1 / s['sample_rate'])
+        t = np.arange(0, .1, 1 / s['sample_rate'])
         piezoWaveform=np.zeros(len(t))
         cameraTTL=np.zeros(len(t))
         self.data=np.concatenate((piezoWaveform,cameraTTL))
         self.sampsPerPeriod=len(piezoWaveform)
         self.analog_output.StopTask()
-        self.analog_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_FiniteSamps,self.sampsPerPeriod)
-        self.analog_output.WriteAnalogF64(self.sampsPerPeriod, 0, -1, DAQmx_Val_GroupByChannel, self.data, byref(self.read), None)
+        self.analog_output.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,self.sampsPerPeriod)
+        self.analog_output.WriteAnalogF64(self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data, byref(self.read), None)
         self.analog_output.StartTask()
         time.sleep(.2)
         self.analog_output.StopTask()
@@ -276,8 +210,8 @@ class LightSheetDriver(QWidget):
         self.data=np.concatenate((piezoWaveform,cameraTTL))
         self.sampsPerPeriod=len(piezoWaveform)
         self.analog_output.StopTask()
-        self.analog_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_FiniteSamps,self.sampsPerPeriod)
-        self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1,DAQmx_Val_GroupByChannel,self.data,byref(self.read),None)
+        self.analog_output.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,self.sampsPerPeriod)
+        self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data,byref(self.read),None)
         self.analog_output.StartTask()
         time.sleep(.2)
         self.analog_output.StopTask()
@@ -290,7 +224,7 @@ class LightSheetDriver(QWidget):
 ##############################################################################
 
 
-class SliderLabel(QWidget):
+class SliderLabel(QtWidgets.QWidget):
     """
     SliderLabel is a widget containing a QSlider and a QSpinBox (or QDoubleSpinBox if decimals are required)
     The QSlider and SpinBox are connected so that a change in one causes the other to change. 
@@ -298,15 +232,15 @@ class SliderLabel(QWidget):
     changeSignal=Signal(int)
 
     def __init__(self,decimals=0): #decimals specifies the resolution of the slider.  0 means only integers,  1 means the tens place, etc.
-        QWidget.__init__(self)
-        self.slider=QSlider(Qt.Horizontal)
+        QtWidgets.QWidget.__init__(self)
+        self.slider=QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.decimals=decimals
         if self.decimals<=0:
-            self.label=QSpinBox()
+            self.label=QtWidgets.QSpinBox()
         else:
-            self.label=QDoubleSpinBox()
+            self.label=QtWidgets.QDoubleSpinBox()
             self.label.setDecimals(self.decimals)
-        self.layout=QHBoxLayout()
+        self.layout=QtWidgets.QHBoxLayout()
         self.layout.addWidget(self.slider)
         self.layout.addWidget(self.label)
         self.layout.setContentsMargins(0,0,0,0)
@@ -341,30 +275,43 @@ class SliderLabel(QWidget):
         self.slider.setValue(value*10**self.decimals)
         self.label.setValue(value)
 
+    def setEnabled(self, bool):
+        self.slider.setEnabled(bool)
+        self.label.setEnabled(bool)
     def setSingleStep(self,value):
         self.label.setSingleStep(value)
         
         
-class CheckBox(QCheckBox):
+class CheckBox(QtWidgets.QCheckBox):
     """ I overwrote the QCheckBox class so that every graphical element has the method 'setValue'. """
     def __init__(self,parent=None):
-        QCheckBox.__init__(self,parent)
+        QtWidgets.QCheckBox.__init__(self,parent)
 
     def setValue(self,value):
         self.setChecked(value)
 
+class Triangle_Scan_Checkbox(CheckBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.stateChanged.connect(self.changed)
+    def changed(self, state):
+        if state == 0: #unchecked
+            self.parent().items['flyback_duration']['object'].setEnabled(True)
+        if state == 2: #checked
+            self.parent().items['flyback_duration']['object'].setEnabled(False)
 
-class MainGui(QWidget):
+class MainGui(QtWidgets.QWidget):
     """ This class creates and controls the GUI. """
     changeSignal=Signal()
     def __init__(self):
-        QWidget.__init__(self)
-        self.setWindowFlags(Qt.WindowStaysOnTopHint)
+        QtWidgets.QWidget.__init__(self)
+        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
         self.setWindowTitle('Light Sheet Controller')
-        formlayout=QFormLayout()
+        formlayout=QtWidgets.QFormLayout()
         self.settings=Settings()
         if dac_present:
             self.lightSheetDriver=LightSheetDriver(self.settings)
+
         mV_per_pixel         = SliderLabel(2);   mV_per_pixel.setRange(0,100)
         maximum_displacement = SliderLabel(0);   maximum_displacement.setRange(0,1000)
         nSteps               = SliderLabel(0);   nSteps.setRange(1,1000)
@@ -372,42 +319,44 @@ class MainGui(QWidget):
         flyback_duration     = SliderLabel(0);   flyback_duration.setRange(1, 1000)
         total_cycle_period   = SliderLabel(3);   total_cycle_period.setRange(0,10)
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
-        total_Ncycles        = SliderLabel(0);   total_Ncycles.setRange(0,100)
-        self.items=[]
-        self.items.append({'name':'mV_per_pixel','string':'mV/pixel','object':mV_per_pixel})
-        self.items.append({'name':'maximum_displacement','string':'Maximum displacement (pixels)','object':maximum_displacement})
-        self.items.append({'name':'nSteps','string':'Number of steps per cycle','object':nSteps})
-        self.items.append({'name':'step_duration','string':'Step duration (ms)','object':step_duration})
-        self.items.append({'name': 'flyback_duration', 'string': 'Flyback Duration (ms)', 'object': flyback_duration})
-        self.items.append({'name':'total_cycle_period','string':'Total cycle Period (s)','object':total_cycle_period})
-        self.items.append({'name':'dither_amp','string':'Dither amplitude mV','object':dither_amp})
-        self.items.append({'name':'total_Ncycles','string':'Total number of cycles','object':total_Ncycles})
-        for item in self.items:
+        triangle_scan        = Triangle_Scan_Checkbox()
+
+        self.items = OrderedDict()
+        self.items['mV_per_pixel']              = {'name': 'mV_per_pixel',          'string': 'mV/pixel',                       'object': mV_per_pixel}
+        self.items['maximum_displacement']      = {'name': 'maximum_displacement',  'string': 'Maximum displacement (pixels)',  'object': maximum_displacement}
+        self.items['nSteps']                    = {'name': 'nSteps',                'string': 'Number of steps per cycle',      'object': nSteps}
+        self.items['step_duration']             = {'name': 'step_duration',         'string': 'Step duration (ms)',             'object': step_duration}
+        self.items['flyback_duration']          = {'name': 'flyback_duration',      'string': 'Flyback Duration (ms)',          'object': flyback_duration}
+        self.items['total_cycle_period']        = {'name': 'total_cycle_period',    'string': 'Total cycle Period (s)',         'object': total_cycle_period}
+        self.items['dither_amp']                = {'name': 'dither_amp',            'string': 'Dither amplitude mV',            'object': dither_amp}
+        self.items['triangle_scan']             = {'name': 'triangle_scan',         'string': 'Triangle Scan',                  'object': triangle_scan}
+
+        for item in self.items.values():
             formlayout.addRow(item['string'],item['object'])
             item['object'].setValue(self.settings[item['name']])
-        self.save1=QPushButton('Save'); self.save1.setStyleSheet("background-color: red"); self.save1.clicked.connect(lambda: self.memstore(1))
-        self.save2=QPushButton('Save'); self.save2.setStyleSheet("background-color: red"); self.save2.clicked.connect(lambda: self.memstore(2))
-        self.save3=QPushButton('Save'); self.save3.setStyleSheet("background-color: red"); self.save3.clicked.connect(lambda: self.memstore(3))
-        self.recall1=QPushButton('Recall'); self.recall1.setStyleSheet("background-color: green"); self.recall1.clicked.connect(lambda: self.memrecall(1))
-        self.recall2=QPushButton('Recall'); self.recall2.setStyleSheet("background-color: green"); self.recall2.clicked.connect(lambda: self.memrecall(2))
-        self.recall3=QPushButton('Recall'); self.recall3.setStyleSheet("background-color: green"); self.recall3.clicked.connect(lambda: self.memrecall(3))
-        memlayout=QGridLayout()
+        self.save1 = QtWidgets.QPushButton('Save'); self.save1.setStyleSheet("background-color: red"); self.save1.clicked.connect(lambda: self.memstore(1))
+        self.save2 = QtWidgets.QPushButton('Save'); self.save2.setStyleSheet("background-color: red"); self.save2.clicked.connect(lambda: self.memstore(2))
+        self.save3 = QtWidgets.QPushButton('Save'); self.save3.setStyleSheet("background-color: red"); self.save3.clicked.connect(lambda: self.memstore(3))
+        self.recall1 = QtWidgets.QPushButton('Recall'); self.recall1.setStyleSheet("background-color: green"); self.recall1.clicked.connect(lambda: self.memrecall(1))
+        self.recall2 = QtWidgets.QPushButton('Recall'); self.recall2.setStyleSheet("background-color: green"); self.recall2.clicked.connect(lambda: self.memrecall(2))
+        self.recall3 = QtWidgets.QPushButton('Recall'); self.recall3.setStyleSheet("background-color: green"); self.recall3.clicked.connect(lambda: self.memrecall(3))
+        memlayout = QtWidgets.QGridLayout()
         memlayout.setHorizontalSpacing(70)
-        memlayout.addWidget(QLabel('Setting #1'),0,0); memlayout.addWidget(self.save1,1,0); memlayout.addWidget(self.recall1,2,0)
-        memlayout.addWidget(QLabel('Setting #2'),0,1); memlayout.addWidget(self.save2,1,1); memlayout.addWidget(self.recall2,2,1)
-        memlayout.addWidget(QLabel('Setting #3'),0,2); memlayout.addWidget(self.save3,1,2); memlayout.addWidget(self.recall3,2,2)
-        membox=QGroupBox("Settings")
+        memlayout.addWidget(QtWidgets.QLabel('Setting #1'),0,0); memlayout.addWidget(self.save1,1,0); memlayout.addWidget(self.recall1,2,0)
+        memlayout.addWidget(QtWidgets.QLabel('Setting #2'),0,1); memlayout.addWidget(self.save2,1,1); memlayout.addWidget(self.recall2,2,1)
+        memlayout.addWidget(QtWidgets.QLabel('Setting #3'),0,2); memlayout.addWidget(self.save3,1,2); memlayout.addWidget(self.recall3,2,2)
+        membox=QtWidgets.QGroupBox("Settings")
         membox.setLayout(memlayout)
-        self.stopButton=QPushButton('Stop'); self.stopButton.setStyleSheet("background-color: red"); self.stopButton.clicked.connect(self.startstop)
-        self.zeroButton=QPushButton('Go to Zero'); self.zeroButton.setStyleSheet("background-color: #fff"); self.zeroButton.clicked.connect(self.gotozero)
-        self.gotoEndButton=QPushButton('Go to End'); self.gotoEndButton.setStyleSheet("background-color: #fff"); self.gotoEndButton.clicked.connect(self.gotoend)
-        self.viewWaveFormButton=QPushButton('View Waveforms'); self.viewWaveFormButton.setStyleSheet("background-color: #fff"); self.viewWaveFormButton.clicked.connect(self.viewWaveForms)
-        stopacquirebox=QGridLayout()
+        self.stopButton=QtWidgets.QPushButton('Stop'); self.stopButton.setStyleSheet("background-color: red"); self.stopButton.clicked.connect(self.startstop)
+        self.zeroButton=QtWidgets.QPushButton('Go to Zero'); self.zeroButton.setStyleSheet("background-color: #fff"); self.zeroButton.clicked.connect(self.gotozero)
+        self.gotoEndButton=QtWidgets.QPushButton('Go to End'); self.gotoEndButton.setStyleSheet("background-color: #fff"); self.gotoEndButton.clicked.connect(self.gotoend)
+        self.viewWaveFormButton=QtWidgets.QPushButton('View Waveforms'); self.viewWaveFormButton.setStyleSheet("background-color: #fff"); self.viewWaveFormButton.clicked.connect(self.viewWaveForms)
+        stopacquirebox=QtWidgets.QGridLayout()
         stopacquirebox.addWidget(self.stopButton,0,0)
         stopacquirebox.addWidget(self.zeroButton,0,3)
         stopacquirebox.addWidget(self.gotoEndButton,1,3)
         stopacquirebox.addWidget(self.viewWaveFormButton,0,4)
-        self.layout=QVBoxLayout()
+        self.layout=QtWidgets.QVBoxLayout()
         self.layout.addLayout(formlayout)
         self.layout.addWidget(membox)
         self.layout.addSpacing(50)
@@ -415,11 +364,11 @@ class MainGui(QWidget):
         self.setLayout(self.layout)
         self.connectToChangeSignal()
         self.changeSignal.connect(self.updateValues)
-        self.setGeometry(QRect(488, 390, 704, 376))
+        self.setGeometry(QtCore.QRect(488, 390, 704, 376))
         self.show()
 
     def connectToChangeSignal(self):
-        for item in self.items:
+        for item in self.items.values():
             methods=[method for method in dir(item['object']) if callable(getattr(item['object'], method))]
             if 'valueChanged' in methods:
                 item['object'].valueChanged.connect(self.changeSignal)
@@ -429,7 +378,7 @@ class MainGui(QWidget):
                 item['object'].currentIndexChanged.connect(self.changeSignal)
 
     def updateValues(self):
-        for item in self.items:
+        for item in self.items.values():
             methods=[method for method in dir(item['object']) if callable(getattr(item['object'], method))]
             if 'value' in methods:
                 item['value']=item['object'].value()
@@ -490,22 +439,34 @@ class MainGui(QWidget):
         t, piezoWaveform=calcPiezoWaveform(s)
         t, cameraTTL = calcCameraTTL(s)
         t, ditherWaveform = calcDitherWaveform(s)
-        pw = pg.PlotWidget(name='Piezo Waveform')
+        pw = pg.PlotWidget(name = 'Piezo Waveform')
         
         pw.plot(t, piezoWaveform, pen=pg.mkPen('r'))
         pw.plot(t, ditherWaveform, pen=pg.mkPen('g'))
         pw.plot(t, cameraTTL, pen=pg.mkPen('w'))
 
-        pw.setLabel('bottom','Time',units='s')
-        pw.setLabel('left','Voltage',units='V')
+        pw.setLabel('bottom', 'Time', units='s')
+        pw.setLabel('left', 'Voltage', units='V')
         pw.show()
-        self.waveform_plot=pw
+        self.waveform_plot = pw
         s.save()
 
 
     
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
+    '''
+    Code to run every inside PyCharm every time you open a console:
+    import sys, os
+    from matplotlib import pyplot  # This is totally unneccessary but it turns on 'interactive mode', which makes debugging in PyCharm way easier.
+    sys.path.append(os.path.join(os.path.expanduser('~'), 'Documents', 'GitHub', 'light_sheet_controller'))
+    from light_sheet_controller import *
+    app = QtWidgets.QApplication(sys.argv)
+    check_if_NI_devs_are_present()
     maingui = MainGui()
-    self = maingui
-    sys.exit(app.exec_())
+    '''
+    app = QtWidgets.QApplication(sys.argv)
+    check_if_NI_devs_are_present()
+    maingui = MainGui()
+
+    self = maingui.items['triangle_scan']['object']
+
