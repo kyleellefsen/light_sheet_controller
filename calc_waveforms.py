@@ -66,7 +66,7 @@ def calcPiezoWaveform(settings):
         V[nSamps_ramp+nSamps_reset:] = 0
 
 
-    V = V + get_offset_voltage(s)
+    V = V + get_offset_volts(s)
 
     if np.max(V) >= 10:
         warning('The voltage of the piezo waveform can not exceed 10. The current max voltage is {}.  Adjust controls to fix this error. '.format(np.max(V)))
