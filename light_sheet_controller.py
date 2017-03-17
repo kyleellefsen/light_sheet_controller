@@ -332,7 +332,7 @@ class MainGui(QtWidgets.QWidget):
         self.items['flyback_duration']          = {'name': 'flyback_duration',      'string': 'Flyback Duration (ms)',          'object': flyback_duration}
         self.items['total_cycle_period']        = {'name': 'total_cycle_period',    'string': 'Total cycle Period (s)',         'object': total_cycle_period}
         self.items['dither_amp']                = {'name': 'dither_amp',            'string': 'Dither amplitude mV',            'object': dither_amp}
-        self.items['offset']                    = {'name': 'offset',                'string': 'Offset (steps)',                 'object': offset}
+        self.items['offset']                    = {'name': 'offset',                'string': 'Offset (pixels)',                 'object': offset}
         self.items['triangle_scan']             = {'name': 'triangle_scan',         'string': 'Triangle Scan',                  'object': triangle_scan}
 
         for item in self.items.values():
@@ -352,7 +352,7 @@ class MainGui(QtWidgets.QWidget):
         membox=QtWidgets.QGroupBox("Settings")
         membox.setLayout(memlayout)
         self.stopButton=QtWidgets.QPushButton('Stop'); self.stopButton.setStyleSheet("background-color: red"); self.stopButton.clicked.connect(self.startstop)
-        self.zeroButton=QtWidgets.QPushButton('Go to Zero'); self.zeroButton.setStyleSheet("background-color: #fff"); self.zeroButton.clicked.connect(self.gotozero)
+        self.zeroButton=QtWidgets.QPushButton('Go to Offset'); self.zeroButton.setStyleSheet("background-color: #fff"); self.zeroButton.clicked.connect(self.gotozero)
         self.gotoEndButton=QtWidgets.QPushButton('Go to End'); self.gotoEndButton.setStyleSheet("background-color: #fff"); self.gotoEndButton.clicked.connect(self.gotoend)
         self.viewWaveFormButton=QtWidgets.QPushButton('View Waveforms'); self.viewWaveFormButton.setStyleSheet("background-color: #fff"); self.viewWaveFormButton.clicked.connect(self.viewWaveForms)
         stopacquirebox=QtWidgets.QGridLayout()
@@ -396,10 +396,13 @@ class MainGui(QtWidgets.QWidget):
 
     def memrecall(self,i):
         '''i is the setting number we are recalling'''
-        self.changeSignal.disconnect(self.updateValues)
+        try:
+            self.changeSignal.disconnect(self.updateValues)
+        except TypeError:
+            pass
         s=self.settings
         s.d[0]=s.d[i].copy()
-        for item in self.items:
+        for item in self.items.values():
             item['object'].setValue(s.d[0][item['name']])
         self.changeSignal.connect(self.updateValues)
         if dac_present:

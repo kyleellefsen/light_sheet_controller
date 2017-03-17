@@ -31,6 +31,10 @@ def get_time_array(s):
         t = np.arange(0, 2*total_cycle_period, 1 / s['sample_rate'])
     return t
 
+def get_offset_volts(s):
+    offset_pixels = s['offset']
+    offset_volts = offset_pixels * (s['mV_per_pixel'] / 1000.0)
+    return offset_volts
 
 def calcPiezoWaveform(settings):
     s = settings
@@ -45,7 +49,7 @@ def calcPiezoWaveform(settings):
         idx = np.logical_and(t >= step_start_times[step], t <= step_end_times[step])
         V[idx] = step_values[step]
     nSamps_ramp = np.count_nonzero(t < step_end_times[-1]) # This is how many time steps the ramp up lasts, including the leading zeros.
-    V[nSamps_ramp:] = maxV
+    V[nSamps_ramp+1:] = maxV
     if not s['triangle_scan']:
         flyback_duration_seconds = s['flyback_duration'] / 1000
         nSamps_reset = int(flyback_duration_seconds*s['sample_rate'])
@@ -61,10 +65,8 @@ def calcPiezoWaveform(settings):
         V[nSamps_ramp:nSamps_ramp + nSamps_reset] = reposition_sig
         V[nSamps_ramp+nSamps_reset:] = 0
 
-    offset_steps = s['offset']
-    volts_per_step = s['maximum_displacement'] * (s['mV_per_pixel'] / 1000.0) / s['nSteps']
-    offset_volts = offset_steps * volts_per_step
-    V = V + offset_volts
+
+    V = V + get_offset_volts(s)
 
     if np.max(V) >= 10:
         warning('The voltage of the piezo waveform can not exceed 10. The current max voltage is {}.  Adjust controls to fix this error. '.format(np.max(V)))
