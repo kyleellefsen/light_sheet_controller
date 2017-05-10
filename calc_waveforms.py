@@ -25,7 +25,7 @@ def get_time_array(s):
     total_cycle_period = s['total_cycle_period']
     if total_cycle_period < s['nSteps'] * step_duration_seconds + flyback_duration_seconds:
         total_cycle_period = s['nSteps'] * step_duration_seconds + flyback_duration_seconds
-    if not s['triangle_scan']:
+    if not s['triangle_scan'] and not s['ttl_on']:
         t = np.arange(0, total_cycle_period, 1 / s['sample_rate'])
     else:
         t = np.arange(0, 2*total_cycle_period, 1 / s['sample_rate'])
@@ -39,6 +39,11 @@ def get_offset_volts(s):
 def calcPiezoWaveform(settings):
     s = settings
     t = get_time_array(s)
+    if s['ttl_on'] and not s['triangle_scan']:
+        t_double = t
+        midpoint = int(len(t_double)/2)
+        t = t[:midpoint]
+        assert len(t_double) == len(t)*2
     step_duration_seconds = s['step_duration'] / 1000
     maxV = s['maximum_displacement'] * s['mV_per_pixel'] / 1000
     step_end_times = np.linspace(step_duration_seconds, s['nSteps'] * step_duration_seconds, s['nSteps'])
@@ -57,7 +62,10 @@ def calcPiezoWaveform(settings):
         reposition_sig = maxV*(np.cos(theta)+1)/2
     else: #if triangle scan is on
         midpoint = int(len(t)/2)
-        V[midpoint:] = V[midpoint:0:-1]
+        V_left = V[:midpoint]
+        V_right = V_left - np.max(V_left)
+        V_right = - V_right
+        V[midpoint:] = V_right
 
     sigma = 3
     V = scipy.ndimage.filters.gaussian_filter1d(V, sigma)
@@ -76,13 +84,16 @@ def calcPiezoWaveform(settings):
         V[V < -10] = -10
     assert np.max(V) <= 10
     assert np.min(V) >= -10
+    if s['ttl_on'] and not s['triangle_scan']:
+        t = t_double
+        V = np.concatenate([V, V])
     return t, V
 
 
 def calcCameraTTL(settings):
     s = settings
     step_duration_seconds = s['step_duration']/1000
-    step_end_times = np.linspace(step_duration_seconds,s['nSteps']*step_duration_seconds,s['nSteps'])
+    step_end_times = np.linspace(step_duration_seconds, s['nSteps']*step_duration_seconds, s['nSteps'])
     if s['triangle_scan']:
         total_cycle_period = s['total_cycle_period']
         if total_cycle_period < s['nSteps'] * step_duration_seconds:
@@ -94,12 +105,20 @@ def calcCameraTTL(settings):
     for step in np.arange(len(step_start_times)):
         idx=np.argmax(t >= step_start_times[step])
         V[idx]=5
+    if s['ttl_on'] and not s['triangle_scan']:
+        midpoint = int(len(t)/2)
+        V[midpoint:] = V[:midpoint]
     return t, V
 
 
 def calcDitherWaveform(settings):
     s = settings
     t = get_time_array(s)
+    if s['ttl_on'] and not s['triangle_scan']:
+        t_double = t
+        midpoint = int(len(t_double)/2)
+        t = t[:midpoint]
+        assert len(t_double) == len(t)*2
     amp = s['dither_amp'] / 1000
     step_duration_seconds = s['step_duration'] / 1000
     freq = 1/step_duration_seconds
@@ -108,4 +127,16 @@ def calcDitherWaveform(settings):
     if not s['triangle_scan']:
         steps_end_time = s['nSteps'] * step_duration_seconds
         V[t > steps_end_time] = 0
+    if s['ttl_on'] and not s['triangle_scan']:
+        t = t_double
+        V = np.concatenate([V, V])
+    return t, V
+
+def calc_ttl(settings):
+    s = settings
+    t = get_time_array(s)
+    V = np.zeros_like(t)
+    if s['ttl_on']:
+        midpoint = int(len(t) / 2)
+        V[midpoint:] = 5
     return t, V

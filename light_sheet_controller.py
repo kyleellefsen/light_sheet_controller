@@ -22,7 +22,7 @@ check_dependencies('PyDAQmx','pyqtgraph', 'PyQt4','numpy','scipy')
 import PyDAQmx
 from PyDAQmx.DAQmxCallBack import *
 from PyDAQmx_helper import getNIDevInfo
-from calc_waveforms import calcPiezoWaveform, calcCameraTTL, calcDitherWaveform
+from calc_waveforms import calcPiezoWaveform, calcCameraTTL, calcDitherWaveform, calc_ttl
 from qtpy import QtCore
 from qtpy import QtWidgets
 from qtpy.QtCore import Signal, Slot
@@ -134,52 +134,54 @@ class LightSheetDriver(QtWidgets.QWidget):
     def createTask(self):
         self.analog_output = PyDAQmx.Task()
         self.analog_output.CreateAOVoltageChan("Dev1/ao0", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the piezo channel
-        self.analog_output.CreateAOVoltageChan("Dev1/ao1", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the ttl channel
+        self.analog_output.CreateAOVoltageChan("Dev1/ao1", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the camera ttl channel
         self.analog_output.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod) #  CfgSampClkTiming(source, rate, activeEdge, sampleMode, sampsPerChan)
         self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data, byref(self.read), None) #  WriteAnalogF64(numSampsPerChan, autoStart, timeout, dataLayout, writeArray, sampsPerChanWritten, reserved)
 
         self.analog_output2 = PyDAQmx.Task()
-        self.analog_output2.CreateAOVoltageChan("Dev2/ao0", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the piezo channel
+        self.analog_output2.CreateAOVoltageChan("Dev2/ao0", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the dither
+        self.analog_output2.CreateAOVoltageChan("Dev2/ao1", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None)  # This is the ttl channel
         self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
         self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data2, byref(self.read), None)
         self.analog_output.StartTask()
         self.analog_output2.StartTask()
-        self.stopped=False
-        self.acquiring=False
+        self.stopped = False
+        self.acquiring = False
 
     def calculate(self):
         _, piezoWaveform = calcPiezoWaveform(self.settings)
         _, cameraTTL = calcCameraTTL(self.settings)
         _, ditherWaveform = calcDitherWaveform(self.settings)
+        _, ttlWaveform = calc_ttl(self.settings)
         self.data = np.concatenate((piezoWaveform, cameraTTL))
-        self.data2 = ditherWaveform
+        self.data2 = np.concatenate((ditherWaveform, ttlWaveform))
         self.sampsPerPeriod=len(piezoWaveform)
 
     def startstop(self):
         if self.stopped:
             self.calculate()
-            self.analog_output.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data, byref(self.read),None)
-            self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read),None)
+            self.analog_output.CfgSampClkTiming( "", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
+            self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
+            self.analog_output.WriteAnalogF64( self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data,  byref(self.read), None)
+            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
             self.analog_output.StartTask()
             self.analog_output2.StartTask()
-            self.stopped=False
+            self.stopped = False
         else:
             self.analog_output.StopTask()
             self.analog_output2.StopTask()
             self.dither_gotozero()
-            self.stopped=True
+            self.stopped = True
 
     def refresh(self):
         if self.stopped is False:
             self.calculate()
             self.analog_output.StopTask()
-            self.analog_output.CfgSampClkTiming("",self.sample_rate,PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1,PyDAQmx.DAQmx_Val_GroupByChannel,self.data,byref(self.read),None)
             self.analog_output2.StopTask()
-            self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
-            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data2,byref(self.read),None)
+            self.analog_output.CfgSampClkTiming( "", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
+            self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
+            self.analog_output.WriteAnalogF64( self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data,  byref(self.read), None)
+            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
             #self.digital_output.StopTask()
             #self.digital_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
             #self.digital_output.WriteDigitalU8(self.sampsPerPeriod, 0, -1, DAQmx_Val_GroupByChannel,self.digital_data, byref(self.digital_read) ,None) #https://www.quark.kj.yamagata-u.ac.jp/~miyachi/nidaqmxbase-3.4.0/documentation/docsource/daqmxbasecfunc.chm/DAQmxWriteDigitalU8.html
@@ -191,9 +193,10 @@ class LightSheetDriver(QtWidgets.QWidget):
         t = np.arange(0, .01, 1 / s['sample_rate'])
         sampsPerPeriod = len(t)
         ditherWaveform = np.zeros(len(t))
-        self.data2 = ditherWaveform
+        ttlWaveform = np.zeros(len(t))
+        self.data2 = np.concatenage([ditherWaveform, ttlWaveform])
         self.analog_output2.StopTask()
-        self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
+        self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
         self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
         self.analog_output2.StartTask()
         time.sleep(.02)
