@@ -59,6 +59,17 @@ def check_if_NI_devs_are_present():
         dac_present=True
     return dac_present
 
+def ipython_qt_event_loop_setup():
+    try:
+        __IPYTHON__
+    except NameError:
+        return #  If __IPYTHON__ is not defined, we are not in ipython
+    else:
+        print("Starting flika inside IPython")
+        from IPython import get_ipython
+        ipython = get_ipython()
+        ipython.magic("gui qt")
+
 class Settings:
     ''' This class saves all the settings as you adjust them.  This way, when you close the program and reopen it, all your settings will automatically load as they were just after the last adjustement'''
     def __init__(self):
@@ -78,6 +89,7 @@ class Settings:
             a['dither_amp'] = 1
             a['triangle_scan'] = False
             a['offset'] = 0
+            a['ttl_on'] = False
             self.d = [a, a.copy(), a.copy(), a.copy()]
 
     def __getitem__(self, item):
@@ -237,8 +249,8 @@ class SliderLabel(QtWidgets.QWidget):
         QtWidgets.QWidget.__init__(self)
         self.slider=QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.decimals=decimals
-        if self.decimals<=0:
-            self.label=QtWidgets.QSpinBox()
+        if self.decimals <= 0:
+            self.label = QtWidgets.QSpinBox()
         else:
             self.label=QtWidgets.QDoubleSpinBox()
             self.label.setDecimals(self.decimals)
@@ -249,10 +261,9 @@ class SliderLabel(QtWidgets.QWidget):
         self.setLayout(self.layout)
         self.slider.valueChanged.connect(lambda val: self.updateLabel(val/10**self.decimals))
         self.label.valueChanged.connect(self.updateSlider)
-        self.valueChanged=self.label.valueChanged
+        self.valueChanged = self.label.valueChanged
 
-    @Slot(int, float)
-    def updateSlider(self,value):
+    def updateSlider(self, value):
         self.slider.setValue(int(value*10**self.decimals))
 
     def updateLabel(self,value):
@@ -323,6 +334,7 @@ class MainGui(QtWidgets.QWidget):
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
         offset               = SliderLabel(0);   offset.setRange(0, 1000)
         triangle_scan        = Triangle_Scan_Checkbox(self)
+        ttl_on               = CheckBox(self)
 
         self.items = OrderedDict()
         self.items['mV_per_pixel']              = {'name': 'mV_per_pixel',          'string': 'mV/pixel',                       'object': mV_per_pixel}
@@ -334,6 +346,7 @@ class MainGui(QtWidgets.QWidget):
         self.items['dither_amp']                = {'name': 'dither_amp',            'string': 'Dither amplitude mV',            'object': dither_amp}
         self.items['offset']                    = {'name': 'offset',                'string': 'Offset (pixels)',                 'object': offset}
         self.items['triangle_scan']             = {'name': 'triangle_scan',         'string': 'Triangle Scan',                  'object': triangle_scan}
+        self.items['ttl_on'] = {'name': 'ttl_on', 'string': 'TTL on', 'object': ttl_on}
 
         for item in self.items.values():
             formlayout.addRow(item['string'],item['object'])
@@ -444,8 +457,10 @@ class MainGui(QtWidgets.QWidget):
     def viewWaveForms(self):
         s=self.settings
         t, piezoWaveform=calcPiezoWaveform(s)
+
         t, cameraTTL = calcCameraTTL(s)
         t, ditherWaveform = calcDitherWaveform(s)
+
         pw = pg.PlotWidget(name = 'Piezo Waveform')
         
         pw.plot(t, piezoWaveform, pen=pg.mkPen('r'))
@@ -458,8 +473,13 @@ class MainGui(QtWidgets.QWidget):
         self.waveform_plot = pw
         s.save()
 
+def start_light_sheet_controller():
+    app = QtWidgets.QApplication(sys.argv)
+    check_if_NI_devs_are_present()
+    ipython_qt_event_loop_setup()
+    maingui = MainGui()
+    return maingui, app
 
-    
 if __name__ == '__main__':
     '''
     Code to run every inside PyCharm every time you open a console:
@@ -471,8 +491,6 @@ if __name__ == '__main__':
     check_if_NI_devs_are_present()
     maingui = MainGui()
     '''
-    app = QtWidgets.QApplication(sys.argv)
-    check_if_NI_devs_are_present()
-    maingui = MainGui()
+    maingui, app = start_light_sheet_controller()
     sys.exit(app.exec_())
 
