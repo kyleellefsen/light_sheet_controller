@@ -40,7 +40,7 @@ def calcPiezoWaveform(settings):
     s = settings
     t = get_time_array(s)
     if s['ttl_on'] and not s['triangle_scan']:
-        t_double = t
+        t_double = np.copy(t)
         midpoint = int(len(t_double)/2)
         t = t[:midpoint]
         assert len(t_double) == len(t)*2
@@ -138,5 +138,5 @@ def calc_ttl(settings):
     V = np.zeros_like(t)
     if s['ttl_on']:
         midpoint = int(len(t) / 2)
-        V[midpoint:] = 5
+        V[midpoint:] = 6
     return t, V

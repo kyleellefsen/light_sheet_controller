@@ -194,7 +194,7 @@ class LightSheetDriver(QtWidgets.QWidget):
         sampsPerPeriod = len(t)
         ditherWaveform = np.zeros(len(t))
         ttlWaveform = np.zeros(len(t))
-        self.data2 = np.concatenage([ditherWaveform, ttlWaveform])
+        self.data2 = np.concatenate([ditherWaveform, ttlWaveform])
         self.analog_output2.StopTask()
         self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
         self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
@@ -463,12 +463,14 @@ class MainGui(QtWidgets.QWidget):
 
         t, cameraTTL = calcCameraTTL(s)
         t, ditherWaveform = calcDitherWaveform(s)
+        t, ttl = calc_ttl(s)
 
         pw = pg.PlotWidget(name = 'Piezo Waveform')
         
         pw.plot(t, piezoWaveform, pen=pg.mkPen('r'))
         pw.plot(t, ditherWaveform, pen=pg.mkPen('g'))
         pw.plot(t, cameraTTL, pen=pg.mkPen('w'))
+        pw.plot(t, ttl, pen=pg.mkPen('g'))
 
         pw.setLabel('bottom', 'Time', units='s')
         pw.setLabel('left', 'Voltage', units='V')
