@@ -25,7 +25,7 @@ def get_time_array(s):
     total_cycle_period = s['total_cycle_period']
     if total_cycle_period < s['nSteps'] * step_duration_seconds + flyback_duration_seconds:
         total_cycle_period = s['nSteps'] * step_duration_seconds + flyback_duration_seconds
-    if not s['triangle_scan'] and not s['ttl_on']:
+    if not s['triangle_scan'] and not s['alternate_lasers']:
         t = np.arange(0, total_cycle_period, 1 / s['sample_rate'])
     else:
         t = np.arange(0, 2*total_cycle_period, 1 / s['sample_rate'])
@@ -36,10 +36,10 @@ def get_offset_volts(s):
     offset_volts = offset_pixels * (s['mV_per_pixel'] / 1000.0)
     return offset_volts
 
-def calcPiezoWaveform(settings):
+def calcPiezoWaveform(settings, get_ramp_and_reset_times=False):
     s = settings
     t = get_time_array(s)
-    if s['ttl_on'] and not s['triangle_scan']:
+    if s['alternate_lasers'] and not s['triangle_scan']:
         t_double = np.copy(t)
         midpoint = int(len(t_double)/2)
         t = t[:midpoint]
@@ -84,9 +84,12 @@ def calcPiezoWaveform(settings):
         V[V < -10] = -10
     assert np.max(V) <= 10
     assert np.min(V) >= -10
-    if s['ttl_on'] and not s['triangle_scan']:
+    if s['alternate_lasers'] and not s['triangle_scan']:
         t = t_double
         V = np.concatenate([V, V])
+
+    if get_ramp_and_reset_times:
+        return nSamps_ramp, nSamps_reset
     return t, V
 
 
@@ -105,7 +108,7 @@ def calcCameraTTL(settings):
     for step in np.arange(len(step_start_times)):
         idx=np.argmax(t >= step_start_times[step])
         V[idx]=5
-    if s['ttl_on'] and not s['triangle_scan']:
+    if s['alternate_lasers'] and not s['triangle_scan']:
         midpoint = int(len(t)/2)
         V[midpoint:] = V[:midpoint]
     return t, V
@@ -114,7 +117,7 @@ def calcCameraTTL(settings):
 def calcDitherWaveform(settings):
     s = settings
     t = get_time_array(s)
-    if s['ttl_on'] and not s['triangle_scan']:
+    if s['alternate_lasers'] and not s['triangle_scan']:
         t_double = t
         midpoint = int(len(t_double)/2)
         t = t[:midpoint]
@@ -127,16 +130,20 @@ def calcDitherWaveform(settings):
     if not s['triangle_scan']:
         steps_end_time = s['nSteps'] * step_duration_seconds
         V[t > steps_end_time] = 0
-    if s['ttl_on'] and not s['triangle_scan']:
+    if s['alternate_lasers'] and not s['triangle_scan']:
         t = t_double
         V = np.concatenate([V, V])
     return t, V
 
+
 def calc_ttl(settings):
     s = settings
+    nSamps_ramp, nSamps_reset = calcPiezoWaveform(s, get_ramp_and_reset_times=True)
     t = get_time_array(s)
     V = np.zeros_like(t)
-    if s['ttl_on']:
-        midpoint = int(len(t) / 2)
-        V[midpoint:] = 6
+    if s['alternate_lasers']:
+        V[nSamps_ramp:2*nSamps_ramp+nSamps_reset] = 6
+        V[nSamps_ramp+4:nSamps_ramp+10] = 0
+    elif s['blue_laser_on']:
+        V[:] = 6
     return t, V

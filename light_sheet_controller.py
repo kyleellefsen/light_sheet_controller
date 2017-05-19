@@ -89,7 +89,8 @@ class Settings:
             a['dither_amp'] = 1
             a['triangle_scan'] = False
             a['offset'] = 0
-            a['ttl_on'] = False
+            a['alternate_lasers'] = False
+            a['blue_laser_on'] = False
             self.d = [a, a.copy(), a.copy(), a.copy()]
 
     def __getitem__(self, item):
@@ -193,7 +194,7 @@ class LightSheetDriver(QtWidgets.QWidget):
         t = np.arange(0, .01, 1 / s['sample_rate'])
         sampsPerPeriod = len(t)
         ditherWaveform = np.zeros(len(t))
-        ttlWaveform = np.zeros(len(t))
+        _, ttlWaveform = calc_ttl(self.settings)
         self.data2 = np.concatenate([ditherWaveform, ttlWaveform])
         self.analog_output2.StopTask()
         self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
@@ -234,6 +235,52 @@ class LightSheetDriver(QtWidgets.QWidget):
         self.analog_output.StopTask()
         self.dither_gotozero()
         self.stopped = True
+
+    def gotobluelaser(self):
+        s = self.settings
+        if s['blue_laser_on']:
+            return
+        s['blue_laser_on'] = True
+        running = not self.stopped
+        if running: #if we are free running
+            self.startstop()
+
+        t = np.arange(0, .01, 1 / s['sample_rate'])
+        sampsPerPeriod = len(t)
+        ditherWaveform = np.zeros(len(t))
+        _, ttlWaveform = calc_ttl(self.settings)
+        ttlWaveform[4:10] = 0
+        self.data2 = np.concatenate([ditherWaveform, ttlWaveform])
+        self.analog_output2.StopTask()
+        self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
+        self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+        self.analog_output2.StartTask()
+        time.sleep(.02)
+        self.analog_output2.StopTask()
+        if running:
+            self.startstop()
+
+    def gotoyellowlaser(self):
+        s = self.settings
+        if not s['blue_laser_on']:
+            return
+        s['blue_laser_on'] = False
+        running = not self.stopped
+        if running: #if we are free running
+            self.startstop()
+        t = np.arange(0, .01, 1 / s['sample_rate'])
+        sampsPerPeriod = len(t)
+        ditherWaveform = np.zeros(len(t))
+        _, ttlWaveform = calc_ttl(self.settings)
+        self.data2 = np.concatenate([ditherWaveform, ttlWaveform])
+        self.analog_output2.StopTask()
+        self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
+        self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+        self.analog_output2.StartTask()
+        time.sleep(.02)
+        self.analog_output2.StopTask()
+        if running:
+            self.startstop()
 
 
 ##############################################################################
@@ -337,7 +384,7 @@ class MainGui(QtWidgets.QWidget):
         dither_amp           = SliderLabel(0);   dither_amp.setRange(0,1000)
         offset               = SliderLabel(0);   offset.setRange(0, 1000)
         triangle_scan        = Triangle_Scan_Checkbox(self)
-        ttl_on               = CheckBox(self)
+        alternate_lasers     = CheckBox(self)
 
         self.items = OrderedDict()
         self.items['mV_per_pixel']              = {'name': 'mV_per_pixel',          'string': 'mV/pixel',                       'object': mV_per_pixel}
@@ -349,7 +396,7 @@ class MainGui(QtWidgets.QWidget):
         self.items['dither_amp']                = {'name': 'dither_amp',            'string': 'Dither amplitude mV',            'object': dither_amp}
         self.items['offset']                    = {'name': 'offset',                'string': 'Offset (pixels)',                 'object': offset}
         self.items['triangle_scan']             = {'name': 'triangle_scan',         'string': 'Triangle Scan',                  'object': triangle_scan}
-        self.items['ttl_on'] = {'name': 'ttl_on', 'string': 'TTL on', 'object': ttl_on}
+        self.items['alternate_lasers']          = {'name': 'alternate_lasers',      'string': 'Alternate Lasers', 'object': alternate_lasers}
 
         for item in self.items.values():
             formlayout.addRow(item['string'],item['object'])
@@ -370,12 +417,17 @@ class MainGui(QtWidgets.QWidget):
         self.stopButton=QtWidgets.QPushButton('Stop'); self.stopButton.setStyleSheet("background-color: red"); self.stopButton.clicked.connect(self.startstop)
         self.zeroButton=QtWidgets.QPushButton('Go to Offset'); self.zeroButton.setStyleSheet("background-color: #fff"); self.zeroButton.clicked.connect(self.gotozero)
         self.gotoEndButton=QtWidgets.QPushButton('Go to End'); self.gotoEndButton.setStyleSheet("background-color: #fff"); self.gotoEndButton.clicked.connect(self.gotoend)
+        self.blueButton=QtWidgets.QPushButton('Switch to blue laser'); self.blueButton.setStyleSheet("background-color: #fff"); self.blueButton.clicked.connect(self.gotobluelaser)
+        self.yellowButton=QtWidgets.QPushButton('Switch to yellow laser'); self.yellowButton.setStyleSheet("background-color: #fff"); self.yellowButton.clicked.connect(self.gotoyellowlaser)
         self.viewWaveFormButton=QtWidgets.QPushButton('View Waveforms'); self.viewWaveFormButton.setStyleSheet("background-color: #fff"); self.viewWaveFormButton.clicked.connect(self.viewWaveForms)
         stopacquirebox=QtWidgets.QGridLayout()
         stopacquirebox.addWidget(self.stopButton,0,0)
-        stopacquirebox.addWidget(self.zeroButton,0,3)
-        stopacquirebox.addWidget(self.gotoEndButton,1,3)
-        stopacquirebox.addWidget(self.viewWaveFormButton,0,4)
+        stopacquirebox.addWidget(self.viewWaveFormButton,1,0)
+        stopacquirebox.addWidget(self.zeroButton,0,1)
+        stopacquirebox.addWidget(self.gotoEndButton,1,1)
+        
+        stopacquirebox.addWidget(self.blueButton,0,2)
+        stopacquirebox.addWidget(self.yellowButton,1,2)
         self.layout=QtWidgets.QVBoxLayout()
         self.layout.addLayout(formlayout)
         self.layout.addWidget(membox)
@@ -456,6 +508,14 @@ class MainGui(QtWidgets.QWidget):
                 self.stopButton.setText('Free Run')
                 self.stopButton.setStyleSheet("background-color: green")                
             self.lightSheetDriver.gotoend()
+
+    def gotobluelaser(self):
+        if dac_present:             
+            self.lightSheetDriver.gotobluelaser()
+
+    def gotoyellowlaser(self):
+        if dac_present:            
+            self.lightSheetDriver.gotoyellowlaser()
 
     def viewWaveForms(self):
         s=self.settings
