@@ -17,8 +17,6 @@ try:
     os.chdir(os.path.split(os.path.realpath(__file__))[0])
 except NameError:
     pass
-from dependency_check import check_dependencies
-check_dependencies('PyDAQmx','pyqtgraph', 'PyQt4','numpy','scipy')
 import PyDAQmx
 from PyDAQmx.DAQmxCallBack import *
 from PyDAQmx_helper import getNIDevInfo
@@ -45,16 +43,17 @@ dac_present = False
 def check_if_NI_devs_are_present():
     global dac_present
     NIDevInfo = getNIDevInfo()
-    if 'Dev1' not in NIDevInfo.keys() and 'Dev2' not in NIDevInfo.keys():
+    if 'Dev1' not in NIDevInfo.keys(): # and 'Dev2' not in NIDevInfo.keys():
         warning('Neither National Instruments Dev1 nor Dev2 can be detected. Open NI MAX and make sure the devices are present. Continuing in test mode.')
     elif 'Dev1' not in NIDevInfo.keys():
         warning('National Instruments Dev1 cannot be detected. Open NI MAX and make sure the device is present. Continuing in test mode.')
-    elif 'Dev2' not in NIDevInfo.keys():
-        warning('National Instruments Dev2 cannot be detected. Open NI MAX and make sure the device is present. Continuing in test mode.')
-    elif NIDevInfo['Dev1']['product_type'] != 'USB-6001':
-        warning('National Instruments Dev1 is not USB-6001. Continuing in test mode.')
-    elif NIDevInfo['Dev2']['product_type'] != 'USB-6001':
-        warning('National Instruments Dev2 is not USB-6001. Continuing in test mode.')
+    #elif 'Dev2' not in NIDevInfo.keys():
+    #    warning('National Instruments Dev2 cannot be detected. Open NI MAX and make sure the device is present. Continuing in test mode.')
+    elif NIDevInfo['Dev1']['product_type'] != 'USB-6211':
+        print('')
+        warning('National Instruments Dev1 is not USB-6211. Continuing in test mode.')
+    #elif NIDevInfo['Dev2']['product_type'] != 'USB-6001':
+    #    warning('National Instruments Dev2 is not USB-6001. Continuing in test mode.')
     else:
         dac_present=True
     return dac_present
@@ -139,13 +138,13 @@ class LightSheetDriver(QtWidgets.QWidget):
         self.analog_output.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod) #  CfgSampClkTiming(source, rate, activeEdge, sampleMode, sampsPerChan)
         self.analog_output.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data, byref(self.read), None) #  WriteAnalogF64(numSampsPerChan, autoStart, timeout, dataLayout, writeArray, sampsPerChanWritten, reserved)
 
-        self.analog_output2 = PyDAQmx.Task()
-        self.analog_output2.CreateAOVoltageChan("Dev2/ao0", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the dither
-        self.analog_output2.CreateAOVoltageChan("Dev2/ao1", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None)  # This is the ttl channel
-        self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
-        self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data2, byref(self.read), None)
+        #self.analog_output2 = PyDAQmx.Task()
+        #self.analog_output2.CreateAOVoltageChan("Dev2/ao0", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None) #  This is the dither
+        #self.analog_output2.CreateAOVoltageChan("Dev2/ao1", "", -10.0, 10.0, PyDAQmx.DAQmx_Val_Volts, None)  # This is the ttl channel
+        #self.analog_output2.CfgSampClkTiming("",self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps,self.sampsPerPeriod)
+        #self.analog_output2.WriteAnalogF64(self.sampsPerPeriod,0,-1, PyDAQmx.DAQmx_Val_GroupByChannel,self.data2, byref(self.read), None)
         self.analog_output.StartTask()
-        self.analog_output2.StartTask()
+        #self.analog_output2.StartTask()
         self.stopped = False
         self.acquiring = False
 
@@ -162,15 +161,15 @@ class LightSheetDriver(QtWidgets.QWidget):
         if self.stopped:
             self.calculate()
             self.analog_output.CfgSampClkTiming( "", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
-            self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
+            #self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
             self.analog_output.WriteAnalogF64( self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data,  byref(self.read), None)
-            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+            #self.analog_output2.WriteAnalogF64(self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
             self.analog_output.StartTask()
-            self.analog_output2.StartTask()
+            #self.analog_output2.StartTask()
             self.stopped = False
         else:
             self.analog_output.StopTask()
-            self.analog_output2.StopTask()
+            #self.analog_output2.StopTask()
             self.dither_gotozero()
             self.stopped = True
 
@@ -178,16 +177,16 @@ class LightSheetDriver(QtWidgets.QWidget):
         if self.stopped is False:
             self.calculate()
             self.analog_output.StopTask()
-            self.analog_output2.StopTask()
+            #self.analog_output2.StopTask()
             self.analog_output.CfgSampClkTiming( "", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
-            self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
+            #self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_ContSamps, self.sampsPerPeriod)
             self.analog_output.WriteAnalogF64( self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data,  byref(self.read), None)
-            self.analog_output2.WriteAnalogF64(self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+            #self.analog_output2.WriteAnalogF64(self.sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
             #self.digital_output.StopTask()
             #self.digital_output.CfgSampClkTiming("",self.sample_rate,DAQmx_Val_Rising,DAQmx_Val_ContSamps,self.sampsPerPeriod)
             #self.digital_output.WriteDigitalU8(self.sampsPerPeriod, 0, -1, DAQmx_Val_GroupByChannel,self.digital_data, byref(self.digital_read) ,None) #https://www.quark.kj.yamagata-u.ac.jp/~miyachi/nidaqmxbase-3.4.0/documentation/docsource/daqmxbasecfunc.chm/DAQmxWriteDigitalU8.html
             self.analog_output.StartTask()
-            self.analog_output2.StartTask()
+            #self.analog_output2.StartTask()
 
     def dither_gotozero(self):
         s = self.settings
@@ -196,12 +195,12 @@ class LightSheetDriver(QtWidgets.QWidget):
         ditherWaveform = np.zeros(len(t))
         _, ttlWaveform = calc_ttl(self.settings)
         self.data2 = np.concatenate([ditherWaveform, ttlWaveform])
-        self.analog_output2.StopTask()
-        self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
-        self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
-        self.analog_output2.StartTask()
+        #self.analog_output2.StopTask()
+        #self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
+        #self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+        #self.analog_output2.StartTask()
         time.sleep(.02)
-        self.analog_output2.StopTask()
+        #self.analog_output2.StopTask()
 
     def gotozero(self):
         s = self.settings
@@ -251,12 +250,12 @@ class LightSheetDriver(QtWidgets.QWidget):
         _, ttlWaveform = calc_ttl(self.settings)
         ttlWaveform[4:10] = 0
         self.data2 = np.concatenate([ditherWaveform, ttlWaveform])
-        self.analog_output2.StopTask()
-        self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
-        self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
-        self.analog_output2.StartTask()
+        #self.analog_output2.StopTask()
+        #self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
+        #self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+        #self.analog_output2.StartTask()
         time.sleep(.02)
-        self.analog_output2.StopTask()
+        #self.analog_output2.StopTask()
         if running:
             self.startstop()
 
@@ -273,12 +272,12 @@ class LightSheetDriver(QtWidgets.QWidget):
         ditherWaveform = np.zeros(len(t))
         _, ttlWaveform = calc_ttl(self.settings)
         self.data2 = np.concatenate([ditherWaveform, ttlWaveform])
-        self.analog_output2.StopTask()
-        self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
-        self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
-        self.analog_output2.StartTask()
+        #self.analog_output2.StopTask()
+        #self.analog_output2.CfgSampClkTiming("", self.sample_rate, PyDAQmx.DAQmx_Val_Rising, PyDAQmx.DAQmx_Val_FiniteSamps,sampsPerPeriod)
+        #self.analog_output2.WriteAnalogF64(sampsPerPeriod, 0, -1, PyDAQmx.DAQmx_Val_GroupByChannel, self.data2, byref(self.read), None)
+        #self.analog_output2.StartTask()
         time.sleep(.02)
-        self.analog_output2.StopTask()
+        #self.analog_output2.StopTask()
         if running:
             self.startstop()
 
