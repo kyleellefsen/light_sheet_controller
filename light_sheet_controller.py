@@ -17,8 +17,6 @@ try:
     os.chdir(os.path.split(os.path.realpath(__file__))[0])
 except NameError:
     pass
-from dependency_check import check_dependencies
-check_dependencies('PyDAQmx','pyqtgraph', 'PyQt4','numpy','scipy')
 import PyDAQmx
 from PyDAQmx.DAQmxCallBack import *
 from PyDAQmx_helper import getNIDevInfo
