@@ -67,12 +67,13 @@ def calcPiezoWaveform(settings, get_ramp_and_reset_times=False):
         V_right = - V_right
         V[midpoint:] = V_right
 
-    sigma = 3
-    V = scipy.ndimage.filters.gaussian_filter1d(V, sigma)
+    
     if not s['triangle_scan']:
         V[nSamps_ramp:nSamps_ramp + nSamps_reset] = reposition_sig
         V[nSamps_ramp+nSamps_reset:] = 0
 
+    sigma = 3
+    V = scipy.ndimage.filters.gaussian_filter1d(V, sigma)
 
     V = V + get_offset_volts(s)
 
